@@ -1,5 +1,6 @@
 #include "_misc.h"
 #include "_debug.h"
+#include <string.h>
 
 
 void cipher_TEA_encrypt( U32 *v, U32 *k )
@@ -670,42 +671,7 @@ char *_strtok_r( char *str, const char *delim, char **last )
 
 void *_memcpy( void *dst, const void *src, INT n )
 {
-    test_param( NULL == dst );
-    test_param( NULL == src );
-    test_param( n < 1 );
-
-    register U8 *pdst = (U8 *)dst;
-    register U8 *psrc = (U8 *)src;
-
-    for( ; 0 < n; n-- )
-    {
-        *(U8 *)pdst++ = *(U8 *)psrc++;
-    }
-
-    /*
-    INT i, m;
-
-    U32 *wdst = (U32 *)dst;  // текущая позиция в буфере назначения
-    U32 *wsrc = (U32 *)src;  // текущая позиция в источнике
-    U8 *cdst, *csrc;
-
-    for( i = 0, m = n / sizeof(long); i < m; i++ )  // копируем основную часть блоками по 4 или 8 байт
-    {
-       *(wdst++) = *(wsrc++);                     // (в зависимости от платформы)
-    }
-
-    cdst = (U8 *)wdst;
-    csrc = (U8 *)wsrc;
-
-    for( i = 0, m = n % sizeof(long); i < m; i++ ) // остаток копируем побайтно
-    {
-       *(cdst++) = *(csrc++);
-    }
-
-    return dst;
-    */
-
-    return pdst;
+    return memcpy(dst, src, n);
 }
 
 void *_memset( void *dst, U8 v, INT n )

@@ -974,7 +974,7 @@ COORD CODE paint_char_xy( COORD x, COORD y, char c )
     U32 smesh;
     U32 i;
     U32 n, xx, yy, xxx, yyy;
-    font_descr_t *fdescr;
+    font_descr_t *fdescr = NULL;
     INT tmp_buf_cnt;
 
     if( PAINT_FONT_Generic8 == paint.font_num ) //for old 8bit dev.
