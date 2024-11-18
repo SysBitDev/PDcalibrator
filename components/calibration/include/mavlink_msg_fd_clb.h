@@ -65,7 +65,7 @@ static inline uint16_t mavlink_msg_fd_clb_encode( uint8_t system_id, uint8_t com
  * @param msg The message to decode
  * @param fd C-struct to decode the message contents into
  */
-static inline void mavlink_msg_fd_decode( const mavlink_message_t *msg, mavlink_fd_clb_t *fdclb )
+static inline void mavlink_msg_fd_clb_decode( const mavlink_message_t *msg, mavlink_fd_clb_t *fdclb )
 {
 	uint8_t len = msg->len < MAVLINK_MSG_ID_FD_CLB_LEN ? msg->len : MAVLINK_MSG_ID_FD_CLB_LEN;
 	memset( fdclb, 0, MAVLINK_MSG_ID_FD_CLB_LEN );

@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "sdkconfig.h"
 #include "lvgl.h"
 #include "esp_lcd_panel_ops.h"
@@ -12,11 +13,8 @@
 #include "esp_err.h"
 #include "esp_log.h"
 
-#include "modGUI.h"
-#include "modPaint.h"
-#include "modParser.h"
-
 static const char *TAG = "display";
+
 static SemaphoreHandle_t lvgl_mux = NULL;
 static esp_lcd_touch_handle_t touch_handle = NULL;
 static esp_lcd_panel_handle_t panel_handle = NULL;
@@ -34,6 +32,7 @@ static void lvgl_task(void *arg);
 static bool display_on_vsync_event(esp_lcd_panel_handle_t panel, const esp_lcd_rgb_panel_event_data_t *event_data, void *user_data);
 
 void configure_backlight(void) {
+
     gpio_config_t backlight_leda_cfg = {
         .pin_bit_mask = (1ULL << LCD_LEDA_GPIO),
         .mode = GPIO_MODE_OUTPUT,
@@ -56,6 +55,8 @@ void configure_backlight(void) {
 }
 
 void display_init(void) {
+    ESP_LOGI(TAG, "Initializing display");
+
     configure_backlight();
 
     i2c_config_t conf = {
@@ -66,8 +67,10 @@ void display_init(void) {
         .scl_pullup_en = GPIO_PULLUP_ENABLE,
         .master.clk_speed = 400000,
     };
+    ESP_LOGI(TAG, "Configuring I2C for touch controller...");
     ESP_ERROR_CHECK(i2c_param_config(I2C_NUM_0, &conf));
     ESP_ERROR_CHECK(i2c_driver_install(I2C_NUM_0, conf.mode, 0, 0, 0));
+    ESP_LOGI(TAG, "I2C initialized successfully for touch controller");
 
     esp_lcd_rgb_panel_config_t panel_config = {
         .data_width = 16,
@@ -89,36 +92,37 @@ void display_init(void) {
             .pclk_hz = 15000000,
             .h_res = 800,
             .v_res = 480,
-            .hsync_back_porch = 40,
+            .hsync_back_porch = 88,
             .hsync_front_porch = 40,
             .hsync_pulse_width = 48,
             .vsync_back_porch = 13,
             .vsync_front_porch = 1,
             .vsync_pulse_width = 31,
-            .flags.pclk_active_neg = 1,
+            .flags.pclk_active_neg = 0,
         },
         .flags = {
             .fb_in_psram = true,
         }
     };
-
+    ESP_LOGI(TAG, "Creating RGB panel...");
     ESP_ERROR_CHECK(esp_lcd_new_rgb_panel(&panel_config, &panel_handle));
-
     esp_lcd_rgb_panel_event_callbacks_t cbs = {
         .on_vsync = display_on_vsync_event,
     };
     ESP_ERROR_CHECK(esp_lcd_rgb_panel_register_event_callbacks(panel_handle, &cbs, NULL));
-
+    ESP_LOGI(TAG, "Resetting and initializing RGB panel...");
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
 
+    ESP_LOGI(TAG, "Initializing touch controller GT911");
     esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
     esp_lcd_panel_io_handle_t tp_io_handle = NULL;
     esp_err_t ret = esp_lcd_new_panel_io_i2c(I2C_NUM_0, &tp_io_config, &tp_io_handle);
     if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to create I2C panel IO for GT911: %s", esp_err_to_name(ret));
         return;
     }
-
+    ESP_LOGI(TAG, "I2C panel IO for GT911 created successfully");
     esp_lcd_touch_config_t tp_cfg = {
         .x_max = 800,
         .y_max = 480,
@@ -130,12 +134,15 @@ void display_init(void) {
             .mirror_y = 0,
         },
     };
-
+    ESP_LOGI(TAG, "Creating touch handle for GT911...");
     ret = esp_lcd_touch_new_i2c_gt911(tp_io_handle, &tp_cfg, &touch_handle);
     if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize GT911 touch controller: %s", esp_err_to_name(ret));
         return;
     }
+    ESP_LOGI(TAG, "GT911 touch controller initialized successfully");
 
+    ESP_LOGI(TAG, "Initializing LVGL library");
     lv_init();
 
     static lv_disp_draw_buf_t draw_buf;
@@ -157,8 +164,10 @@ void display_init(void) {
     indev_drv.type = LV_INDEV_TYPE_POINTER;
     indev_drv.read_cb = lvgl_touch_cb;
     indev_drv.user_data = touch_handle;
+    
     lv_indev_drv_register(&indev_drv);
 
+    ESP_LOGI(TAG, "Installing LVGL tick timer");
     const esp_timer_create_args_t lvgl_tick_timer_args = {
         .callback = &lvgl_tick_inc_cb,
         .name = "lvgl_tick"
@@ -170,13 +179,16 @@ void display_init(void) {
     lvgl_mux = xSemaphoreCreateRecursiveMutex();
     assert(lvgl_mux);
 
+    ESP_LOGI(TAG, "Creating LVGL task");
     xTaskCreate(lvgl_task, "lvgl_task", 4096, NULL, 5, NULL);
 
-    modGUI_init();
-    paint_init(0);
+    lv_obj_t *scr = lv_scr_act();
+    lv_obj_set_style_bg_color(scr, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
 }
 
 static bool display_on_vsync_event(esp_lcd_panel_handle_t panel, const esp_lcd_rgb_panel_event_data_t *event_data, void *user_data) {
+
     return false;
 }
 
@@ -190,7 +202,8 @@ static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t 
     lv_disp_flush_ready(drv);
 }
 
-static void lvgl_touch_cb(lv_indev_drv_t *drv, lv_indev_data_t *data) {
+static void lvgl_touch_cb(lv_indev_drv_t *drv, lv_indev_data_t *data)
+{
     uint16_t touchpad_x[1] = {0};
     uint16_t touchpad_y[1] = {0};
     uint8_t touchpad_cnt = 0;
@@ -199,13 +212,14 @@ static void lvgl_touch_cb(lv_indev_drv_t *drv, lv_indev_data_t *data) {
 
     bool touchpad_pressed = esp_lcd_touch_get_coordinates(
         drv->user_data, touchpad_x, touchpad_y, NULL, &touchpad_cnt, 1);
-
     if (touchpad_pressed && touchpad_cnt > 0) {
         data->point.x = touchpad_x[0];
         data->point.y = touchpad_y[0];
         data->state = LV_INDEV_STATE_PR;
+        ESP_LOGD(TAG, "Touch detected at (%d, %d) with count %d", touchpad_x[0], touchpad_y[0], touchpad_cnt);
     } else {
         data->state = LV_INDEV_STATE_REL;
+        ESP_LOGD(TAG, "No touch detected");
     }
 }
 
@@ -221,5 +235,6 @@ static void lvgl_task(void *arg) {
 
 void app_main(void) {
     esp_log_level_set(TAG, ESP_LOG_DEBUG);
+
     display_init();
 }

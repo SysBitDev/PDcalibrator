@@ -5,13 +5,13 @@
 
 #pragma pack(push,1)
 typedef struct __mavlink_fd_t {
-	uint version:11;     // Version in decimal MMDD MM - mounth, DD - day
-	uint calibrated:1;   // Calibration: 0 - after reset, 1 - calibrated
-    uint error_code:8;   // Error code, RET_xxx, RET_OK = 0 - no error
-    uint ch_num:4;       // Fotodiode channels number - 1-2-3-4-6
-    uint branches_num:2; // Branches for channels 1-3
-    uint vector_mode:2;  // Mode, 0 only
-    uint state:4;		 // State,
+	unsigned int version:11;     // Version in decimal MMDD MM - mounth, DD - day
+	unsigned int calibrated:1;   // Calibration: 0 - after reset, 1 - calibrated
+    unsigned int error_code:8;   // Error code, RET_xxx, RET_OK = 0 - no error
+    unsigned int ch_num:4;       // Fotodiode channels number - 1-2-3-4-6
+    unsigned int branches_num:2; // Branches for channels 1-3
+    unsigned int vector_mode:2;  // Mode, 0 only
+    unsigned int state:4;		 // State,
 
     uint16_t inc_cnt;     // Infinite incrementor
 
