@@ -60,7 +60,6 @@
 #define MODPARCER_CRC_CHECK             1
 #define PIK_START                  		0x0D
 #define PIK_FIN                     	0x0A
-#define PARSER_MAX_DATA_SIZE        	(512)
 
 //#endif
 

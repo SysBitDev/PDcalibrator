@@ -1,3 +1,4 @@
+
 #include "board.h"
 #include "common.h"
 #include "_crc.h"
@@ -14,8 +15,9 @@
 #include "mavlink_msg_fd.h"
 #include "mavlink_msg_fd_clb.h"
 
-#include <lvgl.h>
-#include <TFT_eSPI.h> // Використовується драйвер TFT_eSPI для LVGL
+#include <LovyanGFX.hpp>
+#include <lgfx/v1/platforms/esp32s3/Panel_RGB.hpp>
+#include <lgfx/v1/platforms/esp32s3/Bus_RGB.hpp>
 #include "touch.h"
 
 #include <SPI.h>
@@ -34,78 +36,165 @@ Audio audio;
 #define I2S_BCLK      42
 #define I2S_LRC       18
 
-// Ініціалізація TFT дисплея
-TFT_eSPI tft = TFT_eSPI(); // Створення об'єкта для TFT дисплея
 
-// Буфер для LVGL дисплея
-static lv_disp_draw_buf_t draw_buf;
-static lv_color_t buf1[LV_HOR_RES_MAX * 10];
-static lv_color_t buf2[LV_HOR_RES_MAX * 10];
-static lv_disp_drv_t disp_drv;
-static lv_indev_drv_t indev_drv;
+// Define a class named LGFX, inheriting from the LGFX_Device class.
+class LGFX : public lgfx::LGFX_Device {
+public:
+  // Instances for the RGB bus and panel.
+  lgfx::Bus_RGB     _bus_instance;
+  lgfx::Panel_RGB   _panel_instance;
+  lgfx::Light_PWM   _light_instance;
 
-// Об'єкт LVGL Canvas для малювання
-lv_obj_t *canvas;
+  // Constructor for the LGFX class.
+  LGFX(void) {
 
-// Прототипи функцій
-void my_flush_cb(lv_disp_drv_t * disp, const lv_area_t * area, lv_color_t * color_p);
-bool my_touch_read(lv_indev_drv_t * drv, lv_indev_data_t * data);
+    // Configure the panel.
+    {
+      auto cfg = _panel_instance.config();
+      cfg.memory_width  = 800;
+      cfg.memory_height = 480;
+      cfg.panel_width   = 800;
+      cfg.panel_height  = 480;
+      cfg.offset_x      = 0;
+      cfg.offset_y      = 0;
 
-// Функція обробки оновлення дисплея
-void my_flush_cb(lv_disp_drv_t * disp, const lv_area_t * area, lv_color_t * color_p) {
-    tft.startWrite();
-    tft.setAddrWindow(area->x1, area->y1, area->x2 - area->x1 +1, area->y2 - area->y1 +1);
-    tft.pushColors((uint16_t *)&color_p->full, (area->x2 - area->x1 +1) * (area->y2 - area->y1 +1), true);
-    tft.endWrite();
-    lv_disp_flush_ready(disp);
-}
-
-// Функція обробки сенсорних даних
-bool my_touch_read(lv_indev_drv_t * drv, lv_indev_data_t * data) {
-    if(touch_touched()) {
-        data->state = LV_INDEV_STATE_PR;
-        data->point.x = touch_last_x;
-        data->point.y = touch_last_y;
-    } else {
-        data->state = LV_INDEV_STATE_REL;
+      // Apply configuration to the panel instance.
+      _panel_instance.config(cfg);
     }
-    return false; // Не більше даних для читання
+
+    {
+      auto cfg = _panel_instance.config_detail();
+
+      cfg.use_psram = 1;
+
+      _panel_instance.config_detail(cfg);
+    }
+
+
+    // Configure the RGB bus.
+    {
+      auto cfg = _bus_instance.config();
+      cfg.panel = &_panel_instance;
+
+      // Configure data pins.
+      cfg.pin_d0  = GPIO_NUM_15; // B0
+      cfg.pin_d1  = GPIO_NUM_7;  // B1
+      cfg.pin_d2  = GPIO_NUM_6;  // B2
+      cfg.pin_d3  = GPIO_NUM_5;  // B3
+      cfg.pin_d4  = GPIO_NUM_4;  // B4
+      
+      cfg.pin_d5  = GPIO_NUM_9;  // G0
+      cfg.pin_d6  = GPIO_NUM_46; // G1
+      cfg.pin_d7  = GPIO_NUM_3;  // G2
+      cfg.pin_d8  = GPIO_NUM_8;  // G3
+      cfg.pin_d9  = GPIO_NUM_16; // G4
+      cfg.pin_d10 = GPIO_NUM_1;  // G5
+      
+      cfg.pin_d11 = GPIO_NUM_14; // R0
+      cfg.pin_d12 = GPIO_NUM_21; // R1
+      cfg.pin_d13 = GPIO_NUM_47; // R2
+      cfg.pin_d14 = GPIO_NUM_48; // R3
+      cfg.pin_d15 = GPIO_NUM_45; // R4
+
+      // Configure sync and clock pins.
+      cfg.pin_henable = GPIO_NUM_41;
+      cfg.pin_vsync   = GPIO_NUM_40;
+      cfg.pin_hsync   = GPIO_NUM_39;
+      cfg.pin_pclk    = GPIO_NUM_0;
+      cfg.freq_write  = 14000000;
+
+      // Configure timing parameters for horizontal and vertical sync.
+      cfg.hsync_polarity    = 0;
+      cfg.hsync_front_porch = 40;
+      cfg.hsync_pulse_width = 48;
+      cfg.hsync_back_porch  = 40;
+      
+      cfg.vsync_polarity    = 0;
+      cfg.vsync_front_porch = 1;
+      cfg.vsync_pulse_width = 31;
+      cfg.vsync_back_porch  = 13;
+
+      // Configure polarity for clock and data transmission.
+      cfg.pclk_active_neg   = 1;
+      cfg.de_idle_high      = 0;
+      cfg.pclk_idle_high    = 0;
+
+      // Apply configuration to the RGB bus instance.
+      _bus_instance.config(cfg);
+    }
+
+    {
+      auto cfg = _light_instance.config();
+      cfg.pin_bl = GPIO_NUM_2;
+      _light_instance.config(cfg);
+    }
+    _panel_instance.light(&_light_instance);
+
+    // Set the RGB bus and panel instances.
+    _panel_instance.setBus(&_bus_instance);
+    setPanel(&_panel_instance);
+  }
+};
+
+LGFX lcd;
+static LGFX_Sprite _sprites[2];
+
+static std::uint32_t fps = 0, frame_count = 0;
+
+// static std::uint32_t _width;
+// static std::uint32_t _height;
+U32 err = 0;
+//COLOR color_current;
+static int flip = 0;
+
+
+static void diffDraw(LGFX_Sprite* sp0, LGFX_Sprite* sp1)
+{
+  union
+  {
+    std::uint32_t* s32;
+    std::uint8_t* s;
+  };
+  union
+  {
+    std::uint32_t* p32;
+    std::uint8_t* p;
+  };
+  s32 = (std::uint32_t*)sp0->getBuffer();
+  p32 = (std::uint32_t*)sp1->getBuffer();
+
+  auto width  = sp0->width();
+  auto height = sp0->height();
+
+  auto w32 = (width+3) >> 2;
+  std::int32_t y = 0;
+  do
+  {
+    std::int32_t x32 = 0;
+    do
+    {
+      while (s32[x32] == p32[x32] && ++x32 < w32);
+      if (x32 == w32) break;
+
+      std::int32_t xs = x32 << 2;
+      while (s[xs] == p[xs]) ++xs;
+
+      while (++x32 < w32 && s32[x32] != p32[x32]);
+
+      std::int32_t xe = (x32 << 2) - 1;
+      if (xe >= width) xe = width - 1;
+      while (s[xe] == p[xe]) --xe;
+
+      lcd.pushImage(xs, y, xe - xs + 1, 1, &s[xs]);
+    } while (x32 < w32);
+    s32 += w32;
+    p32 += w32;
+  } while (++y < height);
+  lcd.display();
 }
 
-// Функція ініціалізації LVGL
-void setup_lvgl() {
-    lv_init();
 
-    tft.begin();
-    tft.setRotation(1); // Встановіть потрібну орієнтацію
-
-    // Ініціалізація буфера для LVGL
-    lv_disp_draw_buf_init(&draw_buf, buf1, buf2, LV_HOR_RES_MAX * 10);
-
-    // Ініціалізація дисплейного драйвера LVGL
-    lv_disp_drv_init(&disp_drv);
-    disp_drv.hor_res = 800;
-    disp_drv.ver_res = 480;
-    disp_drv.flush_cb = my_flush_cb;
-    disp_drv.draw_buf = &draw_buf;
-    disp_drv.rounder_cb = NULL;
-    disp_drv.vsync_cb = NULL;
-    lv_disp_drv_register(&disp_drv);
-
-    // Ініціалізація драйвера для сенсорного екрана
-    lv_indev_drv_init(&indev_drv);
-    indev_drv.type = LV_INDEV_TYPE_POINTER;
-    indev_drv.read_cb = my_touch_read;
-    lv_indev_drv_register(&indev_drv);
-
-    // Створення Canvas для малювання
-    canvas = lv_canvas_create(lv_scr_act(), NULL);
-    lv_canvas_set_buffer(canvas, buf1, LV_HOR_RES_MAX, LV_VER_RES_MAX, LV_IMG_CF_TRUE_COLOR);
-    lv_obj_set_pos(canvas, 0, 0);
-    lv_canvas_fill_bg(canvas, lv_color_black(), LV_OPA_COVER);
-}
-
-// Глобальні змінні ======================================================
+// variables ======================================================
 CHAR str[256];
 
 #include "_filter.h"
@@ -176,31 +265,29 @@ INT fd_dsp_button_test( button_t *b )
     return ret;
 }
 
+
+
 static FLOAT calibrate_buf[ FD_CLB_DOTS * 2 ];
 INT mavlink_send_state = 0;
-
-// Функція для скидання калібрування
 void fd_dsp_calibrate_reset( void )
 {
     if( CMD_NOP == mavlink_send_state )
         mavlink_send_state = CMD_FLASH_ERASE;
 }
 
-// Функція для запису калібрування
 void fd_dsp_calibrate_write( void )
 {
     if( CMD_NOP == mavlink_send_state )
         mavlink_send_state = CMD_FLASH_WRITE;
 }
 
-// Функція для обробки процесу відправки калібрування через MAVLink
 void fd_dsp_calibrate_send_process( void )
 {
     mavlink_message_t msg;
     mavlink_fd_clb_t mav_fd_clb;
     static INT iter = 0;
-    static INT delay_cnt = 0;
-    CHAR str_local[32];
+    static INT delay = 0;
+    CHAR str[32];
 
     switch( mavlink_send_state )
     {
@@ -209,14 +296,11 @@ void fd_dsp_calibrate_send_process( void )
     } break;
 
     case CMD_FLASH_ERASE: {
-        xsprintf( str_local, "Sending erase..." );
-        // Створення та налаштування лейбла для відображення повідомлення
-        lv_obj_t *label = lv_label_create(lv_scr_act(), NULL);
-        lv_label_set_text(label, str_local);
-        lv_obj_set_style_local_text_color(label, LV_LABEL_PART_MAIN, LV_STATE_DEFAULT, LV_COLOR_ORANGE);
-        lv_obj_set_pos(label, 310, 20);
+        xsprintf( str, "Sending erase..." );
+        paint_color_set( COLOR_ORANGE );
+        paint_text_xy( 310, 20, str );
 
-        if( 0 == delay_cnt )
+        if( 0 == delay )
         {
             mav_fd_clb.cmd = CMD_FLASH_ERASE;
             mav_fd_clb.data_num = 0;
@@ -227,26 +311,23 @@ void fd_dsp_calibrate_send_process( void )
 
             Serial.write( parser_tx_buf, size );
         }
-        delay_cnt++;
-        if( 30 == delay_cnt )
+        delay++;
+        if( 30 == delay )
         {
-            delay_cnt = 0;
+            delay = 0;
             mavlink_send_state = CMD_NOP;
         }
     } break;
 
     case CMD_FLASH_WRITE: {
-        xsprintf( str_local, "Sending %u...", iter );
-        // Створення та налаштування лейбла для відображення повідомлення
-        lv_obj_t *label = lv_label_create(lv_scr_act(), NULL);
-        lv_label_set_text(label, str_local);
-        lv_obj_set_style_local_text_color(label, LV_LABEL_PART_MAIN, LV_STATE_DEFAULT, LV_COLOR_ORANGE);
-        lv_obj_set_pos(label, 310, 20);
+        xsprintf( str, "Sending %u...", iter );
+        paint_color_set( COLOR_ORANGE );
+        paint_text_xy( 310, 20, str );
 
-        delay_cnt++;
-        if( 5 == delay_cnt )
+        delay++;
+        if( 5 == delay )
         {
-            delay_cnt = 0;
+            delay = 0;
             if( iter < 360 / 8 )
             {
                 mav_fd_clb.cmd = CMD_FLASH_WRITE;
@@ -272,12 +353,9 @@ void fd_dsp_calibrate_send_process( void )
     } break;
 
     case CMD_FLASH_FINALIZE: {
-        xsprintf( str_local, "Sending finished..." );
-        // Створення та налаштування лейбла для відображення повідомлення
-        lv_obj_t *label = lv_label_create(lv_scr_act(), NULL);
-        lv_label_set_text(label, str_local);
-        lv_obj_set_style_local_text_color(label, LV_LABEL_PART_MAIN, LV_STATE_DEFAULT, LV_COLOR_ORANGE);
-        lv_obj_set_pos(label, 310, 20);
+        xsprintf( str, "Sending finished..." );
+        paint_color_set( COLOR_ORANGE );
+        paint_text_xy( 310, 20, str );
 
         mav_fd_clb.cmd = CMD_FLASH_FINALIZE;
         mav_fd_clb.data_num = 0;
@@ -295,79 +373,151 @@ void fd_dsp_calibrate_send_process( void )
     }
 }
 
-// Функція для малювання на екрані
 void drawfunc(void)
 {
+    //static INT clear_cnt = 0;
     static U32 sec = 0;
     static U32 psec = 0;
-    sec = millis() / ( 1000 / 20 ); // Оновлення 20 разів на секунду
+    sec = lgfx::millis() / ( 1000 / 20 );
     if( psec != sec )
     {
         psec = sec;
 
-        // Очищення Canvas
-        lv_canvas_fill_bg(canvas, lv_color_black(), LV_OPA_COVER);
+        // if( ++clear_cnt > 100 )
+        // {
+            // COORD center_x = hal_paint_screen_width()/2;
+    	      // COORD center_y = hal_paint_screen_height()/2 + 11;
+            // paint_color( COLOR_BLACK );
+            // paint_rectangle( center_x - AREA_SIZE, center_y - AREA_SIZE + 11, AREA_SIZE * 2, AREA_SIZE * 2, TRUE );
+        //     //lcd.clear();
+        //     clear_cnt = 0;
+        // }
+        paint_screen_clear();
 
-        // Малювання DSP даних
+        // paint_color( COLOR_BLUE );
+        // lcd.fillCircle( touch_last_x, touch_last_y, 12 );
+
         fd_dsp_draw_all( &fd_data, &fsd, mode, filter_mode, mul );
         fd_dsp_buttons_processor( &mode, &filter_mode, &mul );
 
-        // Відображення FPS та MAVPS
         xsprintf( str, "fps:%d m:%u", fps, mavps );
-        lv_obj_t *label = lv_label_create(lv_scr_act(), NULL);
-        lv_label_set_text(label, str);
-        lv_obj_set_style_local_text_color(label, LV_LABEL_PART_MAIN, LV_STATE_DEFAULT, LV_COLOR_WHITE);
-        lv_obj_set_pos(label, 620, 2);
+        paint_color_set( COLOR_WHITE );
+        paint_text_xy( 620, 2, str );
+
+        // lcd.setCursor( 380, 32 );
+        // lcd.setTextColor( TFT_WHITE );
+        // lcd.printf( "test"  );
+
+        //lcd.display();
+        hal_paint_screen_update();
+        //diffDraw( &_sprites[flip], &_sprites[!flip] );
 
         frame_count++;
     }
 }
 
+
 //==============================================================================
 void setup(void)
 {
-    // Ініціалізація серійного порту
-    Serial.setRxBufferSize(4096);
-    Serial.begin(921600);
+    // serial
+    Serial.setRxBufferSize( 4096 );
+    Serial.begin( 57600 );
 
-    // Ініціалізація сенсорного екрану
+    // touch
     touch_init();
 
-    // Ініціалізація LVGL
-    setup_lvgl();
+    // lcd
+    lcd.begin();
+    lcd.startWrite();
+    lcd.setColorDepth( 16 ) ;
+    lcd.setTextSize( 1 );
+    if (lcd.width() < lcd.height()) lcd.setRotation(lcd.getRotation() ^ 1);
 
-    // Ініціалізація SD-карти
-    pinMode(SD_CS, OUTPUT);
-    digitalWrite(SD_CS, HIGH);
-    SPI.begin(SD_SCK, SD_MISO, SD_MOSI);
-    SPI.setFrequency(16000000);
-    SD.begin(SD_CS);
+    auto lcd_width = lcd.width();
+    auto lcd_height = lcd.height();
 
-    // Ініціалізація аудіо
-    audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
-    audio.setVolume(9); // 0...21
+    for( U32 i = 0; i < 2; ++i )
+    {
+        _sprites[i].setTextSize(2);
+        _sprites[i].setColorDepth( 16 );
+    }
 
-    // Ініціалізація графічного інтерфейсу
+    bool fail = false;
+    for( U32 i = 0; !fail && i < 2; ++i )
+    {
+        fail = !_sprites[i].createSprite( lcd_width, lcd_height );
+    }
+
+    if( fail )
+    {
+        Serial.printf("fail-1\r\n" );
+        fail = false;
+        for( U32 i = 0; !fail && i < 2; ++i)
+        {
+            _sprites[i].setPsram( true );
+            fail = !_sprites[i].createSprite( lcd_width, lcd_height );
+        }
+
+        if (fail)
+        {
+            // Serial.printf("fail-2\r\n" );
+
+            // fail = false;
+            // if (lcd_width > 320) lcd_width = 320;
+            // if (lcd_height > 240) lcd_height = 240;
+
+            // for ( U32 i = 0; !fail && i < 2; ++i )
+            // {
+            //     _sprites[i].setPsram(true);
+            //     fail = !_sprites[i].createSprite(lcd_width, lcd_height);
+            // }
+            if( fail )
+            {
+                Serial.print("createSprite fail...");
+                lgfx::delay(3000);
+            }
+        }
+    }
+
+    pinMode( SD_CS, OUTPUT );
+    digitalWrite( SD_CS, HIGH );
+    SPI.begin( SD_SCK, SD_MISO, SD_MOSI );
+    SPI.setFrequency( 16000000 );
+    SD.begin( SD_CS );
+    audio.setPinout( I2S_BCLK, I2S_LRC, I2S_DOUT );
+    audio.setVolume( 9 ); // 0...21
+
+    // =============================================================
     hal_screen_startup_out();
+    paint_color_set( COLOR_WHITE );
+    paint_color_background_set( COLOR_BLACK );
+    paint_font( PAINT_FONT_Generic8, PAINT_FONT_MS );
+    paint_font_mastab_set( 2 );
+    paint_font_mode_transparent_set( 1 );
+    
 
-    // Заповнення екрану чорним кольором
-    hal_paint_screen_fill(COLOR_BLACK);
+    sound_play( "/0018_battery_pickup.mp3" );
 
-    // Відтворення стартового звуку
-    sound_play("/0018_battery_pickup.mp3");
+    // delay(500);
+    // paint_screen_clear();
+    // hal_paint_screen_update();
+    // paint_screen_clear();
+    // hal_paint_screen_update();
 
-    // Ініціалізація DSP
-    fd_dsp_draw_init(&fd_data);
+// #define FILTER_K 		95. //90.
+//     filt_0.window = FILTER_K;
+
+    fd_dsp_draw_init( &fd_data );
 
 #if UART_PROTOCOL_MAVLINK
-    // Ініціалізація MAVLink, якщо потрібно
 #else
-    // Ініціалізація парсерів
-    modParser_init(&parser_rx, PIK_ADR_DEFAULT, PARSER_MAX_DATA_SIZE);
-    modParser_init(&parser_tx, PIK_ADR_DEFAULT, PARSER_MAX_DATA_SIZE);
+    // parser init =============================================================
+    modParser_init( &parser_rx, PIK_ADR_DEFAULT, PARSER_MAX_DATA_SIZE );
+    modParser_init( &parser_tx, PIK_ADR_DEFAULT, PARSER_MAX_DATA_SIZE );
 #endif
 
-    Serial.printf("\r\nINIT ALL OK!\r\n");
+    Serial.printf("\r\nINIT ALL OK!\r\n" );
 }
 
 void sendMAVLink( void )
@@ -375,11 +525,11 @@ void sendMAVLink( void )
     fd_dsp_calibrate_send_process();
 
     static U32 lastSent = 0;
-    if( millis() - lastSent < 1000 ) return; // Відправка кожну секунду
+    if( millis() - lastSent < 1000 ) return; // Send every second
 
     lastSent = millis();
 
-    // Генерація HEARTBEAT повідомлення
+    // Generate HEARTBEAT message buffer
     mavlink_message_t msg;
     U8 buf[ MAVLINK_MAX_PACKET_LEN ];
 
@@ -389,7 +539,7 @@ void sendMAVLink( void )
     Serial.write( buf, len );
 }
 
-void fd_dsp_MAVLink_recive( void ) // Парсинг MAVLink повідомлень
+void fd_dsp_MAVLink_recive( void ) // Parse MAVLink message
 {
     static mavlink_message_t msg;
     static mavlink_status_t status;
@@ -397,13 +547,54 @@ void fd_dsp_MAVLink_recive( void ) // Парсинг MAVLink повідомле�
     U32 cnt_max = 4000;
     while( Serial.available() > 0 && cnt_max-- )
     {
-        char tmp_char = Serial.read(); // Отримання вхідного байта
+        char tmp_char = Serial.read(); // get incoming byte
         serial_chars_cnt++;
 
 #if UART_PROTOCOL_MAVLINK
         if( mavlink_parse_char( MAVLINK_COMM_0, tmp_char, &msg, &status ))
         {
-            // Обробка MAVLink повідомлень
+            // switch( msg.msgid )
+            // {
+            // case MAVLINK_MSG_ID_RC_CHANNELS_OVERRIDE:
+            //     mavlink_rc_channels_override_t mav_com = {0};
+            //     mavlink_msg_rc_channels_override_decode( &msg, &mav_com );
+
+            //     // snr level after 1-x cascade for all
+            //     fd_data.snr[0] = mav_com.chan1_raw;
+
+            //     // snr level after 2-x cascade for all
+            //     fd_data.snr[1] = mav_com.chan2_raw;
+
+            //     // snr level after 2-x cascade
+            //     fd_data.snr[2] = mav_com.chan3_raw; // for ch1
+            //     fd_data.snr[3] = mav_com.chan4_raw; // for ch2
+            //     fd_data.snr[4] = mav_com.chan5_raw; // for ch3
+            //     fd_data.snr[5] = mav_com.chan6_raw; // for ch4
+
+            //     // rssi after 1-x cascade
+            //     fd_data.v[0] = mav_com.chan7_raw;  // for ch1
+            //     fd_data.v[1] = mav_com.chan8_raw;  // for ch2
+            //     fd_data.v[2] = mav_com.chan9_raw;  // for ch3
+            //     fd_data.v[3] = mav_com.chan10_raw; // for ch4
+
+            //     // rssi after 2-x cascade
+            //     fd_data.v[4] = mav_com.chan11_raw; // for ch1
+            //     fd_data.v[5] = mav_com.chan12_raw; // for ch2
+            //     fd_data.v[6] = mav_com.chan13_raw; // for ch3
+            //     fd_data.v[7] = mav_com.chan14_raw; // for ch4
+
+            //     fd_dsp_add_new_vector( &fd_data, mul );
+
+            //     mavlink_msg_cnt++;
+            //     break;
+
+            // // default:
+            // //   err++;
+            // //     //Serial.print("Received message with ID ");
+            // //     //Serial.println(msg.msgid);
+            // //     break;
+            // }
+
             if( MAVLINK_MSG_ID_FD == msg.msgid )
             {
                 mavlink_fd_t mav_fd = {0};
@@ -419,34 +610,39 @@ void fd_dsp_MAVLink_recive( void ) // Парсинг MAVLink повідомле�
 
                 fsd.idnum = mav_fd.idnum;
 
-                // RSSI після 1-x каскаду
-                fd_data.v[0] = mav_fd.b1ch3; // для ch1
-                fd_data.v[1] = mav_fd.b1ch1; // для ch2
-                fd_data.v[2] = mav_fd.b1ch2; // для ch3
-                fd_data.v[3] = mav_fd.b1ch4; // для ch4
+                // rssi after 1-x cascade
+                fd_data.v[0] = mav_fd.b1ch3; // for ch1 _constrain( fd_data.v[0], 2, 65533 ); //ch1
+                fd_data.v[1] = mav_fd.b1ch1; // for ch2
+                fd_data.v[2] = mav_fd.b1ch2; // for ch3
+                fd_data.v[3] = mav_fd.b1ch4; // for ch4
 
-                // RSSI після 2-x каскаду
-                fd_data.v[4] = mav_fd.b2ch3; // для ch1
-                fd_data.v[5] = mav_fd.b2ch1; // для ch2
-                fd_data.v[6] = mav_fd.b2ch2; // для ch3
-                fd_data.v[7] = mav_fd.b2ch4; // для ch4
+                // rssi after 2-x cascade
+                fd_data.v[4] = mav_fd.b2ch3; // for ch1
+                fd_data.v[5] = mav_fd.b2ch1; // for ch2
+                fd_data.v[6] = mav_fd.b2ch2; // for ch3
+                fd_data.v[7] = mav_fd.b2ch4; // for ch4
 
-                // SNR рівень після 2-x каскаду
-                fd_data.snr[2] = mav_fd.snr_b1ch1; // для ch1
-                fd_data.snr[3] = mav_fd.snr_b1ch2; // для ch2
-                fd_data.snr[4] = mav_fd.snr_b1ch3; // для ch3
-                fd_data.snr[5] = mav_fd.snr_b1ch4; // для ch4
+                // snr level after 2-x cascade
+                fd_data.snr[2] = mav_fd.snr_b1ch1; // for ch1
+                fd_data.snr[3] = mav_fd.snr_b1ch2; // for ch2
+                fd_data.snr[4] = mav_fd.snr_b1ch3; // for ch3
+                fd_data.snr[5] = mav_fd.snr_b1ch4; // for ch4
 
-                // SNR рівень після 2-x каскаду
-                fd_data.snr[2] = mav_fd.snr_b2ch1; // для ch1
-                fd_data.snr[3] = mav_fd.snr_b1ch2; // для ch2
-                fd_data.snr[4] = mav_fd.snr_b2ch3; // для ch3
-                fd_data.snr[5] = mav_fd.snr_b2ch4; // для ch4
+                // snr level after 2-x cascade
+                fd_data.snr[2] = mav_fd.snr_b2ch1; // for ch1
+                fd_data.snr[3] = mav_fd.snr_b1ch2; // for ch2
+                fd_data.snr[4] = mav_fd.snr_b2ch3; // for ch3
+                fd_data.snr[5] = mav_fd.snr_b2ch4; // for ch4
 
                 fd_data.fx[0] = mav_fd.x[0];
                 fd_data.fx[1] = mav_fd.x[1];
                 fd_data.fy[0] = mav_fd.y[0];
                 fd_data.fy[1] = mav_fd.y[1];
+
+//            fd_data.fx[0] = mav_fd.x[0];
+//            fd_data.fx[1] = mav_fd.x[1];
+//            fd_data.fy[0] = mav_fd.y[0];
+//            fd_data.fy[1] = mav_fd.y[1];
 
                 fd_dsp_vector_get( &fd_data, AREA_SIZE * mul );
                 fd_data.fx[0] = fd_data.x[0];
@@ -463,12 +659,13 @@ void fd_dsp_MAVLink_recive( void ) // Парсинг MAVLink повідомле�
 #else
         INT size;
         if( RET_OK == modParser_decode( &parser_rx, tmp_char, parser_rx_buf, &size ))
-        {
+		    {
             if( 0 == fd_dsp_rx_packet( (U8*)parser_rx_buf, &fsd, &fd_data ))
             {
                 fd_dsp_add_new_vector( &fd_data, mul );
                 mavlink_msg_cnt++;
             }
+            
         }
 #endif
     }
@@ -478,7 +675,7 @@ static void mainfunc(void)
 {
     static U32 sec = 0;
     static U32 psec = 0;
-    sec = millis() / 1000;
+    sec = lgfx::millis() / 1000;
     if( psec != sec )
     {
         psec = sec;
@@ -491,49 +688,42 @@ static void mainfunc(void)
 
 void loop(void)
 {
-    // Оновлення LVGL
-    lv_task_handler();
-    delay(5); // Затримка для стабільності
-
-    // Основні функції
     mainfunc();
     drawfunc();
     sendMAVLink();
     fd_dsp_MAVLink_recive();
 }
 
-//==============================================================================
-extern "C" {
 
-// Адаптовані функції для малювання з використанням LVGL
+#ifdef	__cplusplus
+extern "C" {
+#endif
 
 COORD hal_paint_screen_width( void )
 {
-  return 800; // LV_HOR_RES_MAX
+  return SCREEN_W;
 }
 
 COORD hal_paint_screen_height( void )
 {
-  return 480; // LV_VER_RES_MAX
+  return SCREEN_H;
 }
 
 RET hal_paint_init( INT mode )
 {
-    // У LVGL зазвичай не потрібні окремі ініціалізації для малювання,
-    // але можна створити необхідні об'єкти тут, якщо потрібно.
+    _sprites[0].clear();
+    _sprites[1].clear();
     return RET_OK;
 }
 
 void hal_paint_pixel_set( COORD x, COORD y, COLOR color )
 {
-    // Встановлення пікселя на Canvas
-    lv_color_t lv_color = lv_color_make((color >> 11) & 0x1F, (color >> 5) & 0x3F, color & 0x1F);
-    lv_canvas_set_px(canvas, x, y, lv_color);
+    //lcd.drawPixel( x, y, color );
+    _sprites[ flip ].drawPixel( x, y, color );
 }
 
 COLOR hal_paint_pixel_get( COORD x, COORD y )
 {
-    // Отримання пікселя з Canvas
     if( ( x >= hal_paint_screen_width() ) ||
         ( y >= hal_paint_screen_height() ) ||
             ( x < 0 ) || ( y < 0 ) )
@@ -542,16 +732,17 @@ COLOR hal_paint_pixel_get( COORD x, COORD y )
     }
     else
     {
-        lv_color_t lv_color = lv_canvas_get_px(canvas, x, y);
-        return ( (lv_color.ch.red << 11) | (lv_color.ch.green << 5) | (lv_color.ch.blue) );
+        return 0;//lcd.pixel( x, y );
     }
 }
 
 void hal_paint_block( COORD x, COORD y, COORD w, COORD h, COLOR *color )
 {
-    for( COORD j = 0; j < h; j++)
+    COORD i, j;
+
+    for( j = 0; j < h; j++)
     {
-        for( COORD i = 0; i < w; i++)
+        for( i = 0; i < w; i++)
         {
             hal_paint_pixel_set( i + x, j + y, *color++ );
         }
@@ -560,22 +751,25 @@ void hal_paint_block( COORD x, COORD y, COORD w, COORD h, COLOR *color )
 
 void hal_paint_block_color( COORD x, COORD y, COORD w, COORD h, COLOR color )
 {
-    // Створення та заповнення прямокутника на Canvas
-    lv_color_t lv_color = lv_color_make((color >> 11) & 0x1F, (color >> 5) & 0x3F, color & 0x1F);
-    for( COORD j = 0; j < h; j++ )
-    {
-        for( COORD i = 0; i < w; i++ )
-        {
-            hal_paint_pixel_set( x + i, y + j, lv_color.full );
-        }
-    }
+    _sprites[ flip ].fillRect( x, y, w, h, color );
+    // COORD i, j;
+
+    // for( j = 0; j < h; j++)
+    // {
+    //     for( i = 0; i < w; i++)
+    //     {
+    //         hal_paint_pixel_set( i + x, j + y, color );
+    //     }
+    // }
 }
 
 void hal_paint_block_transparent( COORD x, COORD y, COORD w, COORD h, COLOR *color, COLOR transparent )
 {
-    for( COORD j = 0; j < h; j++ )
+    COORD i, j;
+
+    for( j = 0; j < h; j++ )
     {
-        for( COORD i = 0; i < w; i++ )
+        for( i = 0; i < w; i++ )
         {
             if( *color != transparent )
             {
@@ -588,16 +782,20 @@ void hal_paint_block_transparent( COORD x, COORD y, COORD w, COORD h, COLOR *col
 
 void hal_paint_screen_fill( COLOR color )
 {
-    // Заповнення всього Canvas певним кольором
-    lv_color_t lv_color = lv_color_make((color >> 11) & 0x1F, (color >> 5) & 0x3F, color & 0x1F);
-    lv_canvas_fill_bg(canvas, lv_color, LV_OPA_COVER);
+  //lcd.fillScreen( color );
+  _sprites[ flip ].fillRect(0, 0, 800, 480, color );
 }
 
 RET hal_paint_screen_update( void )
 {
-    // Оновлення Canvas на дисплеї
-    lv_obj_invalidate(canvas); // Позначаємо Canvas як потребуючий оновлення
+    //U8 *p8 = (std::uint8_t *)_sprites[flip].getBuffer();
+    //lcd.pushImage( 0, 0, 800, 480, p8 );
+    _sprites[ flip ].pushSprite( &lcd, 0, 0 ); // Draw sprite at coordinates 0, 0 on lcd
+    //lcd.display();
+    flip = flip ^ 1;
     return RET_OK;
 }
 
-} // extern "C"
+#ifdef	__cplusplus
+}
+#endif

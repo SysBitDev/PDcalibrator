@@ -12,8 +12,10 @@ idf_component_register(
         "src/modPaint.c"
         "src/modParser.c"
         "src/xprintf.c"
+        "src/touch.c"
     INCLUDE_DIRS 
         "include"
+    REQUIRES lvgl driver espressif__esp_lcd_touch_gt911 espressif__esp_lcd_touch
 )
 
 set_source_files_properties(
@@ -29,5 +31,7 @@ set_source_files_properties(
     src/modPaint.c
     src/modParser.c
     src/xprintf.c
+    src/touch.c
     PROPERTIES COMPILE_FLAGS "-Wno-error"
 )
+

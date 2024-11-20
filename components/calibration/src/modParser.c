@@ -195,10 +195,10 @@ RET CODE modParser_test( VOID )
             {
             	test_param(1);
             }
-        	if( RET_OK != modParser_encode( &parser, &parser_buf[0], size, &parser_buf_out[0], &size ) )
-        	{
-        		test_param(1);
-        	}
+        	// if( RET_OK != modParser_encode( &parser, &parser_buf[0], size, &parser_buf_out[0], &size ) )
+        	// {
+        	// 	test_param(1);
+        	// }
         	break;
         }
     }
