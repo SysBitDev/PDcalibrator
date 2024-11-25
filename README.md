@@ -1,35 +1,121 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-H2 | ESP32-P4 | ESP32-S2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- |
+# **Проєкт: Графічний інтерфейс на основі ESP32**
 
-# _Sample project_
+## **Опис проєкту**
+Цей проєкт реалізує інтерактивний графічний інтерфейс на основі ESP32-S3, з використанням дисплея з роздільною здатністю 800x480 та сенсорною панеллю GT911. Проєкт включає в себе підтримку передачі даних через MAVLink-протокол, обробку сенсорних подій та графічний вивід через бібліотеку **LVGL**.
 
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
+---
 
-This is the simplest buildable example. The example is used by command `idf.py create-project`
-that copies the project to user specified path and set it's name. For more information follow the [docs page](https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/build-system.html#start-a-new-project)
+## **Особливості**
+- Використання дисплея RGB з роздільною здатністю **800x480 пікселів**.
+- Сенсорна панель GT911 для взаємодії з інтерфейсом.
+- Виведення даних через **MAVLink-протокол**.
+- Реалізація обробки графічних елементів через **LVGL**.
+- Використання апаратного PWM для підсвічування дисплея.
+- Здійснення калібрування даних та обробка фільтрів через спеціалізовані функції.
 
+---
 
+## **Технічні характеристики**
+### **Обладнання**
+1. **Мікроконтролер**: ESP32-S3-WROOM-1.
+2. **Дисплей**: RGB-панель 800x480.
+3. **Сенсорна панель**: GT911.
+4. **UART**: Для передачі та прийому даних MAVLink.
+5. **I2C**: Для управління сенсорною панеллю.
 
-## How to use example
-We encourage the users to use the example as a template for the new projects.
-A recommended way is to follow the instructions on a [docs page](https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/build-system.html#start-a-new-project).
+### **Порти**
+- **UART**: 
+  - TX: GPIO43.
+  - RX: GPIO44.
+  - Швидкість: 57600 бод.
+- **I2C**:
+  - SCL: GPIO20.
+  - SDA: GPIO19.
+  - Частота: 400 кГц.
+- **PWM-підсвічування**:
+  - LEDA: GPIO2.
+  - LEDK: GPIO3.
 
-## Example folder contents
+---
 
-The project **sample_project** contains one source file in C language [main.c](main/main.c). The file is located in folder [main](main).
+## **Структура проєкту**
+### Основні файли:
+- **`app_main.c`**: Головний файл програми, містить логіку роботи графічного інтерфейсу та обробку даних.
+- **Заголовкові файли**:
+  - `board.h`, `common.h`, `_crc.h`, `_misc.h`, `fd_dsp.h`, `modParser.h`, `modPaint.h`, `halPaint.h`, `modGUI.h`, `xprintf.h` – допоміжні функції для графіки, обробки даних і комунікації.
+  - MAVLink-бібліотеки (`c_library_v2`).
+  - Бібліотеки ESP-IDF для роботи з UART, I2C, GPIO та іншими периферійними модулями.
 
-ESP-IDF projects are built using CMake. The project build configuration is contained in `CMakeLists.txt`
-files that provide set of directives and instructions describing the project's source files and targets
-(executable, library, or both). 
+---
 
-Below is short explanation of remaining files in the project folder.
+## **Функціонал коду**
+### Ініціалізація
+1. **UART**:
+   - Налаштування UART для обміну даними з іншими пристроями через MAVLink.
+2. **I2C**:
+   - Ініціалізація сенсорної панелі GT911 для взаємодії з дисплеєм.
+3. **Дисплей**:
+   - Ініціалізація RGB-панелі через ESP-IDF API.
+   - Налаштування буферів для графічного виводу з використанням **LVGL**.
 
+### Графічний інтерфейс
+- Використання **LVGL** для малювання:
+  - **`drawfunc`** – основна функція малювання екрану.
+  - **`paint_screen_clear`**, **`paint_text_xy`**, **`paint_color_set`** – функції для виведення тексту, кольору та очищення екрану.
+
+### Сенсорна панель
+- Обробка натискань:
+  - **`touch_touched`** – визначає, чи є торкання екрана.
+  - **`touch_has_signal`** – перевіряє наявність сигналу.
+  - **`touch_released`** – обробляє подію відпускання.
+
+### MAVLink
+- Передача даних:
+  - **`sendMAVLink`** – надсилає дані через MAVLink.
+- Прийом даних:
+  - **`fd_dsp_MAVLink_recive`** – отримує та обробляє вхідні дані MAVLink.
+
+### Калібрування
+- Функції для роботи з калібрувальними даними:
+  - **`fd_dsp_calibrate_reset`** – скидає калібрування.
+  - **`fd_dsp_calibrate_write`** – записує калібрувальні дані.
+  - **`fd_dsp_calibrate_send_process`** – обробляє та надсилає калібрувальні дані.
+
+---
+
+## **Налаштування та запуск**
+### 1. **Підготовка**
+- Переконайтесь, що ваш ESP32-S3 підключений до дисплея та сенсорної панелі GT911.
+- Встановіть ESP-IDF версії **4.4 або вище**.
+- Склонуйте проєкт у вашу робочу директорію.
+
+### 2. **Збірка**
+```bash
+idf.py set-target esp32s3
+idf.py build
 ```
-├── CMakeLists.txt
-├── main
-│   ├── CMakeLists.txt
-│   └── main.c
-└── README.md                  This is the file you are currently reading
+
+### 3. **Завантаження**
+```bash
+idf.py flash
+idf.py monitor
 ```
-Additionally, the sample project contains Makefile and component.mk files, used for the legacy Make based build system. 
-They are not used or needed when building with CMake and idf.py.
+
+### 4. **Калібрування**
+Для налаштування калібрувальних даних використовуйте функції `fd_dsp_calibrate_reset` та `fd_dsp_calibrate_write`.
+
+---
+
+## **Потенційні проблеми**
+1. **Сенсорна панель не працює**:
+   - Перевірте з'єднання I2C (GPIO20, GPIO19).
+   - Переконайтеся, що драйвер сенсора GT911 правильно ініціалізовано.
+2. **Немає зображення на дисплеї**:
+   - Перевірте налаштування GPIO для RGB-панелі.
+   - Перевірте підключення до PSRAM, якщо дисплей використовує великі буфери.
+
+---
+
+## **Додаткова інформація**
+- **LVGL** документація: [lvgl.io](https://lvgl.io/)
+- **ESP-IDF** документація: [espressif.com](https://docs.espressif.com/projects/esp-idf/en/latest/)
